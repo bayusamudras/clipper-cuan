@@ -120,7 +120,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
     <h2>2 · Pengaturan analisis</h2>
     <div class="row">
       <label class="f1">Panjang clip
-        <select id="len"><option value="20">20 detik</option><option value="30">30 detik</option><option value="35">35 detik</option><option value="40" selected>40 detik</option><option value="45">45 detik</option><option value="50">50 detik</option><option value="60">60 detik</option></select></label>
+        <select id="len"><option value="auto" selected>Otomatis (ikut topik, disarankan &lt;60 dtk)</option><option value="20">20 detik</option><option value="30">30 detik</option><option value="35">35 detik</option><option value="40">40 detik</option><option value="45">45 detik</option><option value="50">50 detik</option><option value="60">60 detik</option></select></label>
       <label class="f1">Jumlah momen
         <select id="count"><option>3</option><option>5</option><option selected>6</option><option>8</option><option>10</option></select></label>
       <label class="f1">Kecepatan pindai
@@ -241,7 +241,7 @@ const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const once=(el,ev)=>new Promise(r=>el.addEventListener(ev,r,{once:true}));
 const pv=$("#pv"), sv=document.createElement("video"), rv=document.createElement("video");
 for(const v of [sv,rv]){v.playsInline=true;v.preload="auto";v.crossOrigin="anonymous"}
-let AC=null,analyser=null,rvSrc=null,sfxBus=null,outBus=null,monitor=null,dest=null,noiseBuf=null;
+let cutG=null,AC=null,analyser=null,rvSrc=null,sfxBus=null,outBus=null,monitor=null,dest=null,noiseBuf=null;
 
 /* ---------- file ---------- */
 const drop=$("#drop"),fileIn=$("#file");
@@ -288,7 +288,7 @@ function parseTranscript(txt){
   for(let i=0;i<cues.length-1;i++)if(cues[i].t1>cues[i+1].t0||cues[i].t1-cues[i].t0>8)cues[i].t1=Math.min(cues[i+1].t0,cues[i].t0+8);
   return cues;
 }
-$("#tr").oninput=()=>{S.cues=parseTranscript($("#tr").value);$("#trInfo").textContent=S.cues.length?S.cues.length+" baris transkrip terbaca.":($("#tr").value.trim()?"Format belum dikenali. Pakai SRT, VTT, atau “mm:ss teks”.":"")};
+$("#tr").oninput=()=>{S.cues=parseTranscript($("#tr").value);S.cueRef=false;$("#trInfo").textContent=S.cues.length?S.cues.length+" baris transkrip terbaca.":($("#tr").value.trim()?"Format belum dikenali. Pakai SRT, VTT, atau “mm:ss teks”.":"")};
 const FILL=/^(halo|hai|hi|selamat (pagi|siang|sore|malam)|oke|ok|baik|jadi|nah|eum+|emm+|anu|gitu|ya|iya|hmm+|well|so|um+|uh+)[\s,.!…-]*$/i;
 const HEDGE=/^(oke|ok|jadi|ya|nah|eum+|anu|gini|gimana ya|jadi gini|ya berarti|berarti ya|halo|selamat)\b/i;
 const CATS={
@@ -296,7 +296,7 @@ const CATS={
   cerita:["gagal","jujur","menyesal","takut","menangis","nangis","trauma","bangkrut","kehilangan","dulu saya","dulu aku","failed","honest"],
   aha:["tips","cara","ternyata","fakta","rahasia","triknya","kuncinya","langkah","persen","%","how to"]};
 const KW=["ternyata","rahasia","jangan","kenapa","mengapa","bahaya","penting","kesalahan","salah","cara","tips","gratis","terbukti","fakta","awas","darurat","hati-hati","solusi","penyebab","pertama","terakhir","warning","secret","mistake","never","why","free","stop"].concat(CATS.kontroversi,CATS.cerita,CATS.aha.filter(w=>w!=="%"&&w!=="how to"));
-const kwList=()=>KW.concat($("#kwx").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean));
+const kwList=()=>KW.concat($("#kwx").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean)).concat($("#topic").value.toLowerCase().split(/\s+/).filter(w=>w.length>3));
 const cueHits=t=>{const l=t.toLowerCase();let h=0;for(const k of kwList())if(l.includes(k))h++;if(/\?/.test(t))h++;if(/\d/.test(t))h++;return h};
 
 /* ---------- audio graph ---------- */
@@ -309,7 +309,7 @@ function initAudio(){
   rvSrc=AC.createMediaElementSource(rv);
   outBus=AC.createGain();dest=AC.createMediaStreamDestination();
   monitor=AC.createGain();
-  rvSrc.connect(outBus);sfxBus=AC.createGain();sfxBus.gain.value=.9;sfxBus.connect(outBus);
+  cutG=AC.createGain();rvSrc.connect(cutG);cutG.connect(outBus);sfxBus=AC.createGain();sfxBus.gain.value=.9;sfxBus.connect(outBus);
   outBus.connect(dest);outBus.connect(monitor);monitor.connect(AC.destination);
   noiseBuf=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);const d=noiseBuf.getChannelData(0);let s=4242;for(let i=0;i<d.length;i++){s=(s*1664525+1013904223)>>>0;d[i]=(s/4294967296)*2-1}
 }
@@ -328,6 +328,16 @@ function sfx(type,o={}){
   if(type==="thud"){env(.003,.3);osc("sine",140,44,.3);noise(300,80,.2,"lowpass")}
 }
 
+/* ---------- nada suara (pitch) ---------- */
+function pitchOf(buf,sr){
+  const n=buf.length;let e=0;for(let i=0;i<n;i++)e+=buf[i]*buf[i];if(e/n<1e-5)return 0;
+  const lo=Math.floor(sr/400),hi=Math.floor(sr/70),m=n-hi;if(m<256)return 0;
+  let c0=0;for(let i=0;i<m;i++)c0+=buf[i]*buf[i];const R=new Float32Array(hi+2);let best=0;
+  for(let l=lo;l<=hi;l++){let x=0,y=0;for(let i=0;i<m;i++){x+=buf[i]*buf[i+l];y+=buf[i+l]*buf[i+l]}const r=x/Math.sqrt(c0*y+1e-12);R[l]=r;if(r>best)best=r}
+  if(best<.5)return 0;
+  for(let l=lo+1;l<hi;l++)if(R[l]>=best*.9&&R[l]>=R[l-1]&&R[l]>=R[l+1])return sr/l;/* lag terkecil yang cukup kuat: hindari salah oktaf */
+  return 0;
+}
 /* ---------- pemindaian ---------- */
 $("#scan").onclick=scan;
 $("#stop").onclick=()=>{S.cancelScan=true};
@@ -336,7 +346,7 @@ async function scan(){
   initAudio();try{await AC.resume()}catch(e){}
   S.scanning=true;S.cancelScan=false;
   const nb=Math.ceil(S.dur/BIN)+2;
-  S.rms=new Float32Array(nb);S.mot=new Float32Array(nb);const seen=new Uint8Array(nb),fxS=new Float32Array(nb),fxW=new Float32Array(nb);
+  S.rms=new Float32Array(nb);S.mot=new Float32Array(nb);const seen=new Uint8Array(nb),fxS=new Float32Array(nb),fxW=new Float32Array(nb),F0S=new Float32Array(nb),F0N=new Float32Array(nb);
   $("#scan").disabled=true;$("#stop").hidden=false;$("#prog").hidden=false;$("#p-res").hidden=true;
   const speed=Number($("#speed").value),buf=new Float32Array(analyser.fftSize);
   const sc=document.createElement("canvas");sc.width=48;sc.height=27;const sx=sc.getContext("2d",{willReadFrequently:true});
@@ -349,6 +359,7 @@ async function scan(){
       if(t!==lastT){lastT=t;lastMove=performance.now()}
       analyser.getFloatTimeDomainData(buf);let s=0;for(let i=0;i<buf.length;i++)s+=buf[i]*buf[i];const r=Math.sqrt(s/buf.length);
       if(r>S.rms[b])S.rms[b]=r;
+      {const f=r>.012?pitchOf(buf,AC.sampleRate):0;if(f){F0S[b]+=Math.log2(f);F0N[b]++}}
       try{sx.drawImage(sv,0,0,48,27);const d=sx.getImageData(0,0,48,27).data;
         if(prev){let m=0;const cm=new Float32Array(48);for(let i=0;i<d.length;i+=4){const df=Math.abs(d[i]*.3+d[i+1]*.59+d[i+2]*.11-prev[i>>2]);m+=df;cm[(i>>2)%48]+=df}
           m/=(d.length/4)*255;if(m>S.mot[b])S.mot[b]=m;
@@ -364,6 +375,7 @@ async function scan(){
   sv.pause();S.scanning=false;$("#scan").disabled=false;$("#stop").hidden=true;$("#prog").hidden=true;
   let lastV=0,lastM=0;for(let i=0;i<nb;i++){if(seen[i]){lastV=S.rms[i];lastM=S.mot[i]}else{S.rms[i]=lastV;S.mot[i]=lastM}}
   {const fx=new Float32Array(nb);let lf=.5;for(let i=0;i<nb;i++){if(fxW[i]>0)lf=fxS[i]/fxW[i];fx[i]=lf}S.fx=smooth(fx,4)}
+  {const f=new Float32Array(nb);for(let i=0;i<nb;i++)f[i]=F0N[i]?F0S[i]/F0N[i]:0;const v=Array.from(f).filter(x=>x>0).sort((a,b)=>a-b),med=v.length?v[v.length>>1]:0,sd=v.length>8?(Math.sqrt(v.reduce((a,x)=>a+(x-med)**2,0)/v.length)||.2):.2;S.f0=f;S.pz=Float32Array.from(f,x=>x>0?(x-med)/sd:0)}
   S.audioOk=Math.max(...S.rms)>0.003;
   analyze();
 }
@@ -372,8 +384,8 @@ async function scan(){
 function smooth(a,k){const o=new Float32Array(a.length);for(let i=0;i<a.length;i++){let s=0,c=0;for(let j=i-k;j<=i+k;j++)if(j>=0&&j<a.length){s+=a[j];c++}o[i]=s/c}return o}
 function pct(a,p){const c=Array.from(a).sort((x,y)=>x-y);return c[Math.floor(p*(c.length-1))]}
 function analyze(){
-  const n=S.rms.length,L=Number($("#len").value),N=Number($("#count").value);
-  const lr=smooth(S.rms,2),lp=pct(lr,.9)||1,loud=lr.map(v=>Math.min(1,v/lp));
+  const n=S.rms.length,AUTO=$("#len").value==="auto",L=AUTO?38:Number($("#len").value),N=Number($("#count").value);
+  const lr=smooth(S.rms,2),lp=pct(lr,.9)||1,loud=lr.map(v=>Math.min(1,v/lp));S.loud=loud;refineCues();
   const mr=smooth(S.mot,2),mp=pct(mr,.9)||1,mot=mr.map(v=>Math.min(1,v/mp));
   const rise=new Float32Array(n);
   for(let i=0;i<n;i++){let a=0,b=0,ca=0,cb=0;for(let j=1;j<=4;j++){if(i-j>=0){a+=loud[i-j];ca++}if(i+j-1<n){b+=loud[i+j-1];cb++}}rise[i]=Math.max(0,(cb?b/cb:0)-(ca?a/ca:0))}
@@ -388,17 +400,17 @@ function analyze(){
   S.score=sc;S.loud=loud;S.mot2=mot;S.rise=rise;S.kw=kw;
   const sm=smooth(sc,3),work=Float32Array.from(sm),cands=[];
   const sep=Math.round(L/BIN);
-  const snap=(c,lo,hi)=>{let bi=Math.round(c/BIN),bv=9;for(let i=Math.round(lo/BIN);i<=Math.round(hi/BIN);i++){if(i<0||i>=n)continue;if(loud[i]<bv){bv=loud[i];bi=i}}return bi*BIN};
+  const snap=(c,lo,hi,side,pref)=>bestPause(c,lo,hi,side,pref);
   while(cands.length<N){
     let p=-1,pv2=0.12;for(let i=0;i<n;i++)if(work[i]>pv2){pv2=work[i];p=i}
     if(p<0)break;
     for(let i=Math.max(0,p-sep);i<=Math.min(n-1,p+sep);i++)work[i]=-1;
     const tp=p*BIN;
-    let start=snap(clamp(tp-L*.3,0,Math.max(0,S.dur-L)),clamp(tp-L*.3,0,S.dur)-2.5,clamp(tp-L*.3,0,S.dur)+2.5);
+    let start=snap(clamp(tp-L*.3,0,Math.max(0,S.dur-L)),clamp(tp-L*.3,0,S.dur)-2.5,clamp(tp-L*.3,0,S.dur)+2.5,"start");
     start=clamp(start,0,Math.max(0,S.dur-12));
     let loB=0,hiB=S.dur;for(const o of cands){if(o.end<=tp)loB=Math.max(loB,o.end);else if(o.start>=tp)hiB=Math.min(hiB,o.start)}
     start=Math.max(start,loB);
-    let end=snap(start+L,Math.min(S.dur,start+L*.8),Math.min(S.dur,start+L*1.15));
+    let end=AUTO?snap(start+L,start+14,Math.min(S.dur,start+58),"end",true):snap(start+L,Math.min(S.dur,start+L*.8),Math.min(S.dur,start+L*1.15),"end");
     end=Math.min(hiB,S.dur,Math.max(end,start+Math.min(12,S.dur-start)));
     let trimmed=false;
     if(S.cues.length){
@@ -410,7 +422,7 @@ function analyze(){
         if(FILL.test(tx)||(HEDGE.test(tx)&&w.length<=5)||dup){start=Math.max(loB,nx.t0-.15);trimmed=true}else break;
       }
     }
-    if(end-start<8){work[p]=-1;continue}
+    end=Math.min(end,start+(AUTO?60:90));if(end-start<8){work[p]=-1;continue}
     let mean=0,cn=0;for(let i=Math.floor(start/BIN);i<=Math.floor(end/BIN)&&i<n;i++){mean+=sc[i];cn++}mean/=cn||1;
     const reasons=[];
     if(S.audioOk&&loud[p]>.75)reasons.push("suara naik");
@@ -432,6 +444,27 @@ function analyze(){
   $("#scanSt").textContent=cands.length?`Selesai. ${cands.length} momen ditemukan.`:"Tidak ada momen menonjol. Coba panjang clip lain atau tempel transkrip.";
   if(!S.audioOk)$("#tlInfo").textContent="Audio tidak terbaca saat pemindaian, jadi skor hanya dari gerakan visual. Klik garis untuk melompat.";
 }
+/* titik potong: jeda terpanjang yang jatuh di akhir kalimat (nada turun atau batas transkrip); jangan potong saat nada masih naik */
+function bestPause(c,lo,hi,side,pref){
+  const L=S.loud,n=L.length;let best=null;
+  for(let i=Math.max(1,Math.round(lo/BIN));i<=Math.min(n-2,Math.round(hi/BIN));i++){
+    if(L[i]>=.2)continue;let j=i;while(j<n-1&&L[j+1]<.2)j++;
+    const t0=i*BIN,t1=(j+1)*BIN,len=t1-t0;
+    let sc=Math.min(len,1.5)-L[i]*.5-Math.abs((t0+t1)/2-c)*(pref?.02:.006);
+    if(S.pz&&S.pz[i-1]){const d=S.pz[i-1]-S.pz[Math.max(0,i-3)];if(d<0)sc+=.5;if(d>.6)sc-=.7}
+    const q=S.cues.find(q=>Math.abs(q.t1-t0)<.5);if(q){sc+=.9;if(/\b(jadi|intinya|makanya|kesimpulan|pokoknya)\b/i.test(q.text))sc+=.8}
+    if(!best||sc>best.sc)best={sc,t:side==="start"?t1-.12:t0+Math.min(.22,len*.5)};
+    i=j;
+  }
+  return best?best.t:c;
+}
+/* waktu akhir subtitle jangan menggantung di atas jeda */
+function refineCues(){
+  if(S.cueRef||!S.cues.length||!S.audioOk)return;S.cueRef=true;const L=S.loud;
+  for(const q of S.cues){let b=Math.round(q.t1/BIN),f=-1;for(let i=Math.min(L.length-1,b);i>=Math.max(0,b-3);i--)if(L[i]>.18){f=i;break}
+    if(f>=0)q.t1=Math.max(q.t0+.6,Math.min(q.t1,f*BIN+BIN))}
+  for(let i=0;i<S.cues.length-1;i++)if(S.cues[i].t1>S.cues[i+1].t0)S.cues[i].t1=S.cues[i+1].t0;
+}
 function setCold(c){
   const cd=Number($("#hdur").value),w=Math.round(cd/BIN);let best=-1,bt=null;
   const lo=Math.ceil((c.start+3)/BIN),hi=Math.floor((c.end-cd)/BIN);
@@ -443,7 +476,7 @@ function sopCheck(c){
   const hd=Number($("#hdur").value),mode=$("#hmode").value,cold=(mode==="both"||mode==="cold")&&c.cold!=null,txt=(mode==="both"||mode==="text")&&c.hook.trim();
   const sk=jumpPlan(c).reduce((a,r)=>a+r[1]-r[0],0),out=c.len-sk+(cold?hd:0),bv=Number($("#bgv").value),bm=$("#bgm").value;
   return [
-    {ok:out>=28&&out<=47,t:`durasi sekitar ${Math.round(out)} dtk (target 30–45)`},
+    {ok:out>=12&&out<=60,t:`durasi sekitar ${Math.round(out)} dtk (disarankan di bawah 60)`},
     {ok:!!(cold||txt),t:"belum ada hook di 3 detik pertama"},
     {ok:$("#jump").checked&&S.audioOk,t:"jump cut mati"},
     {ok:$("#subs").checked&&S.cues.length>0,t:S.cues.length?"subtitle mati":"subtitle butuh transkrip"},
@@ -530,7 +563,7 @@ pv.addEventListener("timeupdate",()=>{if(S.score)drawTL()});
 addEventListener("resize",()=>{if(S.score)drawTL()});
 
 /* ---------- animasi penerapan ---------- */
-const ANIM_TYPES={steps:"Langkah",stat:"Angka",compare:"Perbandingan",cause:"Sebab-akibat",example:"Contoh",warn:"Peringatan",tip:"Tips"};
+const ANIM_TYPES={steps:"Langkah",stat:"Angka",compare:"Perbandingan",cause:"Sebab-akibat",example:"Contoh",warn:"Peringatan",tip:"Tips",question:"Pertanyaan",takeaway:"Intinya"};
 const shortT=(t,n)=>t.replace(/[.,!?;:…"“”()]+/g," ").trim().split(/\s+/).slice(0,n).join(" ");
 const esc=t=>String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 function detectAnims(c){
@@ -550,6 +583,8 @@ function detectAnims(c){
       if(nums.length)a={type:"stat",text:nums.map(n=>n[1]+(n[2]?" "+n[2]:"")).join(" → ")};
     }
     if(!a&&/\b(jangan|bahaya|awas|hati-hati|kesalahan|salah)\b/i.test(tx))a={type:"warn",text:shortT(tx,6)};
+    if(!a&&/\?\s*$/.test(tx)&&tx.split(/\s+/).length>=3)a={type:"question",text:shortT(tx,6)};
+    if(!a&&(m=tx.match(/\b(?:intinya|kesimpulannya|pokoknya|yang penting)\b[\s,:-]*(.*)/i)))a={type:"takeaway",text:shortT(m[1]||tx,6)};
     if(!a&&(m=tx.match(/\b(?:contohnya|contoh|misalnya|ibaratnya)\b[\s,:-]*(.*)/i)))a={type:"example",text:shortT(m[1]||tx,6)};
     if(!a&&/\b(tips|caranya|cara|trik|kuncinya|rahasia)\b/i.test(tx))a={type:"tip",text:shortT(tx,6)};
     if(a){a.t=t;a.dur=3.4;a.on=true;out.push(a)}
@@ -584,7 +619,7 @@ function drawAnim(ctx,a,lt,R,accent,fire){
       const ti=a.times&&a.times[i]!=null?a.times[i]:i*1.3,r=clamp((lt-ti)/.35,0,1),cy=top+rowH*(i+.5),cx=p+r0;
       if(i<n-1){const tn=a.times&&a.times[i+1]!=null?a.times[i+1]:(i+1)*1.3;line(cx,cy+r0,cx,cy+rowH-r0,clamp((lt-tn+.35)/.35,0,1),"rgba(255,255,255,.25)",3)}
       ctx.globalAlpha=fo*(.3+.7*r);
-      ctx.beginPath();ctx.arc(cx,cy,r0*(.7+.3*easeBack(r)),0,7);ctx.fillStyle=lt>ti+.5?accent:"rgba(255,255,255,.18)";ctx.fill();
+      ctx.beginPath();{const q=r0*(.7+.3*easeBack(r));ctx.roundRect(cx-q,cy-q,2*q,2*q,r0*.3)}ctx.fillStyle=lt>ti+.5?accent:"rgba(255,255,255,.18)";ctx.fill();
       if(lt>ti+.5){check(cx,cy,r0,clamp((lt-ti-.5)/.3,0,1),"#10201e")}else{ctx.fillStyle="#fff";ctx.font=`800 ${Math.round(r0*1.1)}px ${FD}`;ctx.textAlign="center";ctx.fillText(String(i+1),cx,cy)}
       ctx.font=`600 ${fsS}px ${F}`;ctx.textAlign="left";ctx.fillStyle="#fff";
       const ls=wrapText(ctx,parts[i],cw-r0*2.6).slice(0,2);ls.forEach((l,k)=>ctx.fillText(l,cx+r0*1.9+(1-r)*28,cy+(k-(ls.length-1)/2)*fsS*1.15));
@@ -643,6 +678,16 @@ function drawAnim(ctx,a,lt,R,accent,fire){
     ctx.fillStyle="#fff";ctx.font=`800 ${Math.round(s*1.2)}px ${FD}`;ctx.textAlign="center";ctx.fillText("!",0,s*.18);ctx.restore();
     ctx.font=`700 ${fsS*1.1}px ${F}`;ctx.textAlign="left";ctx.fillStyle="#fff";const ls=wrapText(ctx,d.parts.join(" "),cw-s*3).slice(0,3);ls.forEach((l,j)=>ctx.fillText(l,cx+s*1.9,cy+(j-(ls.length-1)/2)*fsS*1.3));
     if(lt>=.05)fire(a,"t","thud",{gain:.3});
+  }else if(a.type==="question"){
+    const s=Math.min(bh*.42,w*.1),cx=p+s*1.1,cy=top+bh/2,bb=easeBack(clamp(lt/.35,0,1));
+    ctx.save();ctx.translate(cx,cy+Math.sin(lt*6)*s*.06);ctx.rotate(-.12+.12*bb);ctx.scale(bb,bb);ctx.fillStyle=accent;ctx.beginPath();ctx.roundRect(-s,-s,2*s,2*s,s*.35);ctx.fill();
+    ctx.fillStyle="#10201e";ctx.font=`800 ${Math.round(s*1.6)}px ${FD}`;ctx.textAlign="center";ctx.fillText("?",0,s*.06);ctx.restore();
+    ctx.font=`700 ${fsS*1.1}px ${F}`;ctx.textAlign="left";ctx.fillStyle="#fff";const ls=wrapText(ctx,d.parts.join(" "),cw-s*3).slice(0,3);ls.forEach((l,j)=>ctx.fillText(l,cx+s*1.5,cy+(j-(ls.length-1)/2)*fsS*1.3));
+    if(lt>=.05)fire(a,"t","pop",{gain:.24});
+  }else if(a.type==="takeaway"){
+    ctx.font=`800 ${Math.round(fsB*.85)}px ${FD}`;ctx.textAlign="center";const ls=wrapText(ctx,d.parts.join(" "),cw).slice(0,2),lh=fsB,y0=top+bh/2-(ls.length-1)*lh/2;
+    ls.forEach((l,k)=>{const wl=ctx.measureText(l).width,gp=eo3(clamp((lt-.25-k*.3)/.4,0,1));ctx.fillStyle="#fff";ctx.fillText(l,w/2,y0+k*lh);ctx.fillStyle=accent;ctx.fillRect(w/2-wl/2,y0+k*lh+lh*.38,wl*gp,lh*.1)});
+    if(lt>=.25)fire(a,"t","ding",{gain:.2});
   }else{
     const s=Math.min(bh*.28,w*.07),cx=p+s*1.5,cy=top+bh/2,gl=.5+.5*Math.sin(lt*5);
     for(let k=0;k<8;k++){const an=k*Math.PI/4+lt*.6;ctx.strokeStyle=`rgba(255,210,63,${.35+.4*gl})`;ctx.lineWidth=4;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(cx+Math.cos(an)*s*1.35,cy+Math.sin(an)*s*1.35);ctx.lineTo(cx+Math.cos(an)*s*1.75,cy+Math.sin(an)*s*1.75);ctx.stroke()}
@@ -671,7 +716,8 @@ function jumpPlan(c){
   for(let i=i0;i<=i1+1;i++){
     const q=i<=i1&&S.loud[i]<thr;
     if(q){if(run===null)run=i}
-    else{if(run!==null&&i-run>=minRun){const a=run*BIN-c.start+pre,b=i*BIN-c.start-post;if(a>lim&&b<c.len-1.6&&b-a>.25)out.push([a,b])}run=null}
+    else{if(run!==null&&i-run>=minRun){const ts=run*BIN,te=i*BIN,pz=S.pz,k0=Math.max(0,run-1),fin=S.cues.some(q=>Math.abs(q.t1-ts)<.6)||(pz&&pz[k0]&&pz[k0]<pz[Math.max(0,run-3)]-.3),dr=pz&&(pz[Math.min(pz.length-1,i)]>1.2||pz[Math.min(pz.length-1,i+1)]>1.2),keep=dr?.45:fin?.3:.14;
+      const a=ts-c.start+keep/2,b=te-c.start-keep/2;if(a>lim&&b<c.len-1.6&&b-a>.2)out.push([a,b])}run=null}
   }
   if(ag){for(const q of S.cues){if(q.t1<=c.start||q.t0>=c.end||!FILL.test(q.text.trim())||q.t1-q.t0>2.5)continue;
     const a=Math.max(q.t0-c.start,lim),b=Math.min(q.t1-c.start,c.len-1.6);if(b-a>.25)out.push([a,b])}}
@@ -710,59 +756,65 @@ function startBGM(kind,vol,dur){
 }
 function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 /* Rencana editan: kapan kamera menghantam, bergeser, atau memberi penekanan. Deterministik per momen. */
+function phraseUnits(c){
+  const q=S.cues.filter(q=>q.t1>c.start+.3&&q.t0<c.end).map(q=>({t0:Math.max(0,q.t0-c.start),t1:Math.min(c.len,q.t1-c.start),text:q.text}));
+  if(q.length)return q;
+  const u=[],i0=Math.floor(c.start/BIN),i1=Math.min(S.loud.length-1,Math.floor(c.end/BIN));let s=i0;
+  for(let i=i0+1;i<=i1+1;i++){if(i>i1||S.loud[i]<.15){if((i-s)*BIN>=1.5)u.push({t0:s*BIN-c.start,t1:i*BIN-c.start,text:""});if(i<=i1)s=i+1}}
+  return u;
+}
+/* Zoom per kalimat: lebar untuk konteks, sedang untuk bicara biasa, dekat untuk klaim/angka/pertanyaan/nada naik.
+   Perubahan hanya di batas kalimat (min. 2,2 dtk), tidak acak. Impact hanya di kata kunci yang ditekan. */
 function editPlan(c){
-  const P=PRESETS[$("#estyle").value]||PRESETS.energik,r=mulberry(c.id*7+11),ev=[];
+  const P=PRESETS[$("#estyle").value]||PRESETS.energik,ev=[];
   if(!S.loud)return {ev,P};
-  const n=S.loud.length,i0=Math.floor(c.start/BIN),i1=Math.min(n-2,Math.floor(c.end/BIN));
-  const pk=[];
-  for(let i=i0+3;i<i1-3;i++){const v=S.rise[i];if(v>.5&&v>=S.rise[i-1]&&v>=S.rise[i+1])pk.push({t:i*BIN-c.start,s:v})}
-  pk.sort((a,b)=>b.s-a.s);
-  const maxI=Math.max(1,Math.round(c.len/9));
-  for(const p of pk){if(ev.length>=maxI)break;if(p.t>1&&p.t<c.len-1.5&&ev.every(e=>Math.abs(e.t-p.t)>3))ev.push({t:p.t,type:"impact"})}
-  const onset=tt=>{const bi=Math.round((c.start+tt)/BIN);let best=bi,bs=-9;for(let j=bi-2;j<=bi+2;j++){if(j<1||j>=n)continue;const d=S.loud[j]-S.loud[j-1];if(d>bs){bs=d;best=j}}return best*BIN-c.start};
-  let t=1.2+r();
-  while(t<c.len-1.6){
-    const tt=onset(t);
-    if(tt>.8&&tt<c.len-1.6&&ev.every(e=>Math.abs(e.t-tt)>P.gap*.55))ev.push({t:tt,type:"punch"});
-    t+=P.gap*(.85+r()*.4);
-  }
+  const z=P.zoom-1,un=phraseUnits(c),maxI=Math.max(1,Math.round(c.len/12)),top=$("#topic").value.toLowerCase().split(/\s+/).filter(w=>w.length>3);
+  let prev=1,lastT=-9,imp=0;
+  un.forEach((u,k)=>{
+    const a=Math.floor((c.start+u.t0)/BIN),b=Math.max(a,Math.floor((c.start+u.t1)/BIN));let pz=0,ld=0,rs=0,cn=0,pk=a;
+    for(let i=a;i<=b&&i<S.loud.length;i++){ld+=S.loud[i];cn++;if(S.pz&&S.pz[i]>pz)pz=S.pz[i];if(S.rise[i]>rs){rs=S.rise[i];pk=i}}
+    ld/=cn||1;
+    const tx=u.text.toLowerCase(),hits=u.text?cueHits(u.text):0,tp=top.some(w=>tx.includes(w)),qs=/\?\s*$/.test(u.text);
+    const em=.3*clamp(pz/1.5,0,1)+.2*ld+.2*Math.min(1,hits/2)+.1*(/\d/.test(tx)?1:0)+.1*(tp?1:0)+.1*rs;
+    let lv=em>.58?1+z:em>.4?1+.55*z:1+.1*z;if(qs)lv=Math.max(lv,1+.55*z);if(k===0)lv=Math.max(lv,1+.4*z);
+    if(Math.abs(lv-prev)>.025&&(k===0||u.t0-lastT>=2.2)){ev.push({t:u.t0,type:"punch",sc:lv,ease:lv>prev?.7:1.1});prev=lv;lastT=u.t0}
+    if(em>.68&&imp<maxI&&u.text&&(hits>0||pz>1.2)){
+      const ws=u.text.split(/\s+/).filter(w=>w.length>=5||/\d/.test(w)),kk=new Set(kwList()),w=ws.find(w=>/\d/.test(w))||ws.find(w=>kk.has(w.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"")))||ws.slice().sort((x,y)=>y.length-x.length)[0];
+      const t=Math.max(u.t0,pk*BIN-c.start);
+      if(w&&t>1&&t<c.len-1.5&&ev.every(e=>Math.abs(e.t-t)>3)){ev.push({t,type:"impact",sc:prev,ease:.14,word:w.replace(/[.,!?;:"()]/g,"").slice(0,16)});imp++}
+    }
+  });
   ev.sort((a,b)=>a.t-b.t);
-  const z=P.zoom,lv=[1,1+.8*(z-1),1,z,1.03,1+.9*(z-1)];let k=0;
-  for(const e of ev){let sc=lv[k++%lv.length];if(e.type==="impact")sc=Math.max(sc,1+.9*(z-1));e.sc=sc;e.ox=(r()-.5)*.07;e.oy=(r()-.5)*.035}
-  for(const e of ev){
-    if(e.type!=="impact")continue;
-    const ab=c.start+e.t,q=S.cues.find(q=>ab>=q.t0-.5&&ab<=q.t1+.5);
-    if(q){const ws=q.text.split(/\s+/).filter(w=>w.length>=5||/\d/.test(w));
-      const w=ws.find(w=>/\d/.test(w))||ws.slice().sort((a,b)=>b.length-a.length)[0];
-      if(w)e.word=w.replace(/[.,!?;:"()]/g,"").slice(0,16)}
-  }
   return {ev,P};
 }
 function planSummary(c){const {ev}=editPlan(c);const im=ev.filter(e=>e.type==="impact").length,w=ev.filter(e=>e.word).length;return `ritme: ${ev.length} perubahan kamera · ${im} impact`+(w?` · ${w} kata ditonjolkan`:"")+((c.anims||[]).filter(a=>a.on).length?` · ${(c.anims||[]).filter(a=>a.on).length} animasi penerapan`:"")+(jumpPlan(c).length?` · ${jumpPlan(c).length} jeda dipotong`:"")}
 function camAt(plan,tm,len){
   const ev=plan.ev;let k=-1;for(let i=0;i<ev.length;i++){if(ev[i].t<=tm)k=i;else break}
-  let sc=1,ox=0,oy=0,sh=0;
-  if(k>=0){
-    const to=ev[k],from=k>0?ev[k-1]:{sc:1,ox:0,oy:0},dur=to.type==="impact"?.14:.26,u=eo3(clamp((tm-to.t)/dur,0,1));
-    sc=from.sc+(to.sc-from.sc)*u;ox=from.ox+(to.ox-from.ox)*u;oy=from.oy+(to.oy-from.oy)*u;
-    if(to.type==="impact")sh=Math.exp(-(tm-to.t)*9)*plan.P.shake;
-  }
-  sc*=1+.012*Math.sin(tm*.8)+.02*(tm/len);
-  return {sc,ox,oy,sh};
+  let sc=1,sh=0;
+  if(k>=0){const to=ev[k],from=k>0?ev[k-1].sc:1,u=eo3(clamp((tm-to.t)/to.ease,0,1));sc=from+(to.sc-from)*u;
+    if(to.type==="impact"){const dt=tm-to.t;sh=Math.exp(-dt*9)*plan.P.shake;sc+=.04*Math.exp(-dt*7)}}
+  sc*=1+.01*Math.sin(tm*.8);
+  return {sc,ox:0,oy:0,sh};
+}
+const syl=w=>Math.max(1,(w.toLowerCase().match(/[aiueoéè]+/g)||[]).length);
+function cueWords(q){
+  if(q._w)return q._w;const ws=q.text.split(/\s+/).filter(Boolean),wt=ws.map(w=>syl(w)+(/[.?!…]$/.test(w)?1.2:/[,;:]$/.test(w)?.6:0)),tot=wt.reduce((a,b)=>a+b,0)||1,d=q.t1-q.t0;let t=q.t0;
+  q._w=ws.map((w,i)=>{const t0=t;t+=d*wt[i]/tot;return {w,t0,t1:t}});
+  const ch=[];let cur=[];q._w.forEach((o,i)=>{cur.push(o);const len=cur.map(x=>x.w).join(" ").length;
+    if(cur.length>=4||len>=20||(/[.?!…]$/.test(o.w))||(/[,;:]$/.test(o.w)&&cur.length>=2)||i===q._w.length-1){ch.push(cur);cur=[]}});
+  q._c=ch;return q._w;
 }
 function capAt(mt){
-  const q=S.cues.find(q=>mt>=q.t0&&mt<q.t1);if(!q)return null;
-  const ws=q.text.split(/\s+/).filter(Boolean);if(!ws.length)return null;
-  const tot=ws.reduce((s,w)=>s+w.length+2,0),u=(mt-q.t0)/(q.t1-q.t0)*tot;let acc=0,cur=ws.length-1;
-  for(let i=0;i<ws.length;i++){acc+=ws[i].length+2;if(u<acc){cur=i;break}}
-  const s=Math.floor(cur/3)*3;return {ws:ws.slice(s,s+3),cur:cur-s};
+  const q=S.cues.find(q=>mt>=q.t0&&mt<q.t1)||S.cues.find(q=>mt>=q.t1&&mt<q.t1+.3);if(!q||!q.text.trim())return null;
+  cueWords(q);const ch=q._c.find(g=>mt<g[g.length-1].t1)||q._c[q._c.length-1];let cur=ch.findIndex(o=>mt<o.t1);if(cur<0)cur=ch.length-1;
+  return {ws:ch.map(o=>o.w),cur,u:clamp((mt-ch[cur].t0)/.18,0,1)};
 }
 function wrapWords(ctx,words,maxW){const lines=[[]];let w0=0;for(const w of words){const m=ctx.measureText(w.text+" ").width;if(w0+m>maxW&&lines[lines.length-1].length){lines.push([]);w0=0}lines[lines.length-1].push(w);w0+=m}return lines}
 function pickMime(){for(const t of ["video/mp4;codecs=avc1.42E01E,mp4a.40.2","video/mp4","video/webm;codecs=vp9,opus","video/webm"])if(window.MediaRecorder&&MediaRecorder.isTypeSupported(t))return t;return""}
 
 async function renderClip(c,record){
   if(busy)return;busy=true;cancelR=false;
-  initAudio();try{await AC.resume()}catch(e){}
+  initAudio();cutG.gain.value=1;try{await AC.resume()}catch(e){}
   try{await Promise.all([document.fonts.load('800 40px "Bricolage Grotesque"'),document.fonts.load('600 30px "Instrument Sans"')])}catch(e){}
   const cv=$("#cv"),ctx=cv.getContext("2d"),W=Number($("#res").value),H=Math.round(W*16/9);
   cv.width=W;cv.height=H;
@@ -780,7 +832,7 @@ async function renderClip(c,record){
   let risen=false;
   const bg=document.createElement("canvas");bg.width=54;bg.height=96;const bx=bg.getContext("2d");
   const land=S.vw/S.vh>1.05,lay=$("#lay").value,layout=(lay==="split"&&land)?"split":lay==="crop"?"crop":(lay==="box"?"box":(land?"box":"crop"));
-  let fxSm=.5,jz=1,echoed=false;const kws=new Set(kwList()),loopOn=$("#loop").checked&&words.length>0,emoCol=accent.toLowerCase()==="#ffd23f"?"#ff5a36":"#ffd23f";
+  let fxSm=.5,jz=1,jzT=1,echoed=false;const kws=new Set(kwList()),loopOn=$("#loop").checked&&words.length>0,emoCol=accent.toLowerCase()==="#ffd23f"?"#ff5a36":"#ffd23f";
   const emo=w=>{const l=w.toLowerCase().replace(/[^\p{L}\p{N}%]/gu,"");return /\d/.test(l)||kws.has(l)};
   const subs=$("#subs").checked&&S.cues.length>0;
   const vh0=W*S.vh/S.vw,vy0=(H-vh0)/2;
@@ -834,7 +886,7 @@ async function renderClip(c,record){
     if(type==="main")cam=camAt(plan,tm,c.len);
     else cam={sc:1+.16*(T/hookDur),ox:0,oy:0,sh:0};
     const intro=type==="main"?(useCold?.22:.12)*Math.pow(Math.max(0,1-tm/(useCold?.35:.45)),2):0;
-    const sc0=(cam.sc+intro)*jz;
+    jz+=(jzT-jz)*.3;const sc0=(cam.sc+intro)*jz;
     const amp=W*.012*cam.sh,sx=Math.sin(TT*95)*amp,sy=Math.cos(TT*83)*amp;
     ctx.fillStyle="#05090a";ctx.fillRect(0,0,W,H);
     if(layout==="box"){
@@ -863,11 +915,10 @@ async function renderClip(c,record){
           else sfx("whoosh",{dur:.16,gain:.1,pitch:e.sc>1.05?1.15:.85});
         }
       });
-      // cincin dan kata sorot untuk impact
+      // kata sorot untuk impact
       for(let i=0;i<plan.ev.length;i++){
         const e=plan.ev[i];if(e.type!=="impact")continue;const dt=tm-e.t;
-        if(dt>=0&&dt<.55&&P.shake>0){const u=dt/.55;ctx.save();ctx.strokeStyle=accent;ctx.globalAlpha=(1-u)*.8;ctx.lineWidth=W*.012*(1-u)+2;ctx.beginPath();ctx.arc(W/2,layout==="box"?H/2:H*.5,W*.1+u*W*.42,0,7);ctx.stroke();ctx.restore()}
-        if(e.word&&dt>=0&&dt<1.2){
+                if(e.word&&dt>=0&&dt<1.2){
           const p=easeBack(clamp(dt/.22,0,1)),fo=1-clamp((dt-.9)/.3,0,1),fs=Math.round(W*.13);
           ctx.save();ctx.font=`800 ${fs}px "Bricolage Grotesque","Arial Narrow",system-ui,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";
           const ty=layout==="box"?Math.min(H*.84,vy0+vh0+fs*1.1):H*.6;ctx.translate(W/2,ty);ctx.rotate(-.05*p);ctx.scale(p,p);ctx.globalAlpha=fo;
@@ -896,13 +947,13 @@ async function renderClip(c,record){
       ctx.fillStyle="#fff";ctx.fillText(tx,x+fs*1.05,y);ctx.restore();
     }
     // subtitle kata-per-kata
-    if(subs&&!(type==="teaser"&&useText)){
+    if(subs){
       const cp=capAt(mt);
       if(cp){const fs=Math.round(W*.066);ctx.save();ctx.font=`800 ${fs}px "Bricolage Grotesque","Arial Narrow",system-ui,sans-serif`;ctx.textBaseline="middle";ctx.lineJoin="round";
         const sp=fs*.34,ws=cp.ws.map(w=>w.toUpperCase());let wd=ws.map(w=>ctx.measureText(w).width),tw=wd.reduce((a,b)=>a+b,0)+sp*(ws.length-1);
         const fit=Math.min(1,W*.9/tw);if(fit<1){wd=wd.map(v=>v*fit);tw*=fit}
         let x=(W-tw)/2;const y=layout==="box"?Math.min(H*.9,vy0+vh0+fs*(useText?1.6:1.4)):(layout==="split"?H*.5:($("#spos").value==="mid"?H*.58:H*.74));
-        ws.forEach((w,i)=>{const cur=i===cp.cur;ctx.save();ctx.translate(x+wd[i]/2,y);ctx.scale(fit*(cur?1.08:1),fit*(cur?1.08:1));ctx.textAlign="center";
+        ws.forEach((w,i)=>{const cur=i===cp.cur;ctx.save();ctx.translate(x+wd[i]/2,y);{const ps=fit*(cur?1.04+.14*(1-eo3(cp.u)):1);ctx.scale(ps,ps)}ctx.textAlign="center";if(cur&&emo(w)){ctx.fillStyle=accent;ctx.fillRect(-wd[i]/fit/2,fs*.4,wd[i]/fit*eo3(cp.u),fs*.09)}
           ctx.lineWidth=fs*.2;ctx.strokeStyle="rgba(0,0,0,.9)";ctx.strokeText(w,0,0);ctx.fillStyle=cur?accent:(emo(w)?emoCol:"#fff");ctx.fillText(w,0,0);ctx.restore();x+=wd[i]+sp});
         ctx.restore()}
     }
@@ -941,8 +992,8 @@ async function renderClip(c,record){
         if(mt>=seg.dur||rv.ended)return res();
         if(seg.type==="main"&&!seeking){
           const r=skips.find(r=>mt>=r[0]&&mt<r[1]);
-          if(r){seeking=true;skipped+=r[1]-mt;jz=jz>1?1:1.07;sfx("whoosh",{dur:.1,gain:.1,pitch:1.5});
-            rv.addEventListener("seeked",()=>{seeking=false},{once:true});rv.currentTime=seg.t0+r[1];requestAnimationFrame(step);return}
+          if(r){seeking=true;skipped+=r[1]-mt;jzT=(r[1]-r[0]>.5&&jzT===1)?1.05:1;cutG.gain.setTargetAtTime(0,AC.currentTime,.006);sfx("whoosh",{dur:.1,gain:.1,pitch:1.5});
+            rv.addEventListener("seeked",()=>{seeking=false;cutG.gain.setTargetAtTime(1,AC.currentTime,.012)},{once:true});rv.currentTime=seg.t0+r[1];requestAnimationFrame(step);return}
         }
         const T=base+Math.max(0,mt-skipped);draw(T,rv.currentTime,seg.type);
         $("#rProg i").style.width=(T/total*100)+"%";

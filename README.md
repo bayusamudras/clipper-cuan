@@ -6,12 +6,12 @@ Alat untuk mengubah video panjang (podcast, wawancara, rekaman lapangan) menjadi
 
 | Path | Fungsi |
 |---|---|
-| `app/index.html` | Website satu berkas. Buka langsung di Chrome atau Safari, tanpa server dan tanpa instalasi. |
+| `index.html` | Website satu berkas. Buka langsung di Chrome atau Safari, tanpa server dan tanpa instalasi. |
 | `skills/yt-to-explainer-clips/SKILL.md` | Skill untuk Claude: alur dari video sumber ke clip, plus SOP kualitas clip. |
 
 ## Cara pakai website
 
-1. Buka `app/index.html` di browser (klik dua kali).
+1. Buka `index.html` di browser (klik dua kali), atau buka versi Pages bila sudah diaktifkan.
 2. Pilih atau tarik file video. File .MOV dari iPhone yang berformat HEVC kadang ditolak browser; ubah dulu ke H.264:
    `ffmpeg -i asli.MOV -c:v libx264 -crf 20 -c:a aac baru.mp4`
 3. Isi topik, dan tempel transkrip (SRT, VTT, atau baris `01:23 teks`) bila ada. Transkrip membuat pemangkasan basa-basi, subtitle, kata sorot, dan hashtag bekerja.

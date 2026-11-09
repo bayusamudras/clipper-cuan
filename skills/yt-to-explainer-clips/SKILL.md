@@ -80,7 +80,7 @@ Cek tiap clip terhadap daftar ini sebelum diserahkan. Alasannya: penonton memutu
 7. **Efek loop**: kalimat atau hook terakhir menyambung kembali ke awal.
 8. **Paket posting**: judul layar, caption berpertanyaan, 3–5 hashtag niche + 1 hashtag tren.
 
-Untuk video panjang, arahkan pengguna ke website Potong Hook (`app/index.html`): file tidak diunggah, jadi ukuran GB aman. Transkrip yang ditempel membuat pemangkasan basa-basi, subtitle, dan kata sorot bekerja.
+Untuk video panjang, arahkan pengguna ke website Potong Hook (`index.html`): file tidak diunggah, jadi ukuran GB aman. Transkrip yang ditempel membuat pemangkasan basa-basi, subtitle, dan kata sorot bekerja.
 
 ## Kegagalan yang sudah diketahui
 

@@ -124,7 +124,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
       <label class="f1">Jumlah momen
         <select id="count"><option>3</option><option>5</option><option selected>6</option><option>8</option><option>10</option></select></label>
       <label class="f1">Kecepatan pindai
-        <select id="speed"><option value="2">2× (lebih teliti)</option><option value="3">3×</option><option value="4" selected>4× (tercepat)</option></select></label>
+        <select id="speed"><option value="2">2× (lebih teliti)</option><option value="3">3×</option><option value="4">4× (paling teliti)</option><option value="8" selected>8× turbo (disarankan)</option><option value="16">16× super turbo (video sangat panjang)</option></select></label>
     </div>
     <p class="hint" id="thAuto" style="margin-top:10px">Tema satu seri: tempel transkrip atau isi topik, lalu hook dibuat dari tema dan isi tiap clip.</p>
     <div class="row" style="margin-top:12px">
@@ -173,7 +173,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
     <h2>Gaya hook</h2>
     <div class="row">
       <label class="f1">Jenis hook
-        <select id="hmode"><option value="both" selected>Cold open + teks</option><option value="cold">Cold open saja</option><option value="text">Teks saja</option></select></label>
+        <select id="hmode"><option value="both">Cold open + teks</option><option value="cold">Cold open saja</option><option value="text" selected>Teks saja (disarankan)</option></select></label>
       <label class="f1">Durasi hook
         <input type="range" id="hdur" min="1" max="3" step="0.5" value="2"><span id="hdurV" class="status" style="margin:0">2,0 detik</span></label>
     </div>
@@ -181,7 +181,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
       <label class="f1">Tata letak
         <select id="lay"><option value="auto" selected>Otomatis</option><option value="box">Video di tengah + latar blur</option><option value="crop">Isi penuh + auto-fokus pembicara</option><option value="split">Split atas-bawah (2 pembicara berdampingan)</option></select></label>
       <label class="f1">Resolusi
-        <select id="res"><option value="720" selected>720×1280 (cepat)</option><option value="1080">1080×1920</option></select></label>
+        <select id="res"><option value="540">540×960 (paling lancar)</option><option value="720" selected>720×1280 (seimbang)</option><option value="1080">1080×1920</option></select></label>
     </div>
     <div class="row" style="margin-top:12px">
       <label class="f1">Fokus wajah (mode isi penuh)
@@ -803,7 +803,9 @@ function jumpPlan(c){
   }
   if(ag){for(const q of S.cues){if(q.t1<=c.start||q.t0>=c.end||!FILL.test(q.text.trim())||q.t1-q.t0>2.5)continue;
     const a=Math.max(q.t0-c.start,lim),b=Math.min(q.t1-c.start,c.len-1.6);if(b-a>.25)out.push([a,b])}}
-  out.sort((x,y)=>x[0]-y[0]);const m=[];for(const r of out){const l=m[m.length-1];if(l&&r[0]<=l[1]+.05)l[1]=Math.max(l[1],r[1]);else m.push(r.slice())}
+  out.sort((x,y)=>x[0]-y[0]);let m=[];for(const r of out){const l=m[m.length-1];if(l&&r[0]<=l[1]+.05)l[1]=Math.max(l[1],r[1]);else m.push(r.slice())}
+  m=m.filter(r=>r[1]-r[0]>=.45);
+  if(m.length>6){const keep=new Set(m.slice().sort((x,y)=>(y[1]-y[0])-(x[1]-x[0])).slice(0,6));m=m.filter(r=>keep.has(r))}
   return m;
 }
 $("#bgm").addEventListener("change",()=>{$("#bgfWrap").hidden=$("#bgm").value!=="file"});
@@ -909,7 +911,7 @@ async function renderClip(c,record){
   if(busy)return;busy=true;cancelR=false;
   initAudio();try{await AC.resume()}catch(e){}
   try{await Promise.all([document.fonts.load('800 40px "Bricolage Grotesque"'),document.fonts.load('600 30px "Instrument Sans"')])}catch(e){}
-  const cv=$("#cv"),ctx=cv.getContext("2d"),W=Number($("#res").value),H=Math.round(W*16/9);
+  const cv=$("#cv"),ctx=cv.getContext("2d",{alpha:false,desynchronized:true}),W=Number($("#res").value),H=Math.round(W*16/9);
   cv.width=W;cv.height=H;
   const mode=$("#hmode").value,hookDur=Number($("#hdur").value);
   const useCold=(mode==="both"||mode==="cold")&&c.cold!=null,useText=(mode==="both"||mode==="text")&&c.hook.trim().length>0;
@@ -961,7 +963,7 @@ async function renderClip(c,record){
           const draw1=(dx,al,col)=>{ctx.save();ctx.translate(cx+tx+dx,y);const s=hs==="stack"?1:.6+.4*p;ctx.scale(s,s);ctx.globalAlpha*=al*clamp(t/.08,0,1);
             if(col){ctx.fillStyle=col;ctx.textAlign="center";ctx.fillText(w.text,0,0)}
             else if(i===ai){ctx.fillStyle=pillCol;const pw=widths[wi]+fs*.36,ph=fs*1.05;ctx.beginPath();ctx.roundRect(-pw/2,-ph/2,pw,ph,fs*.2);ctx.fill();ctx.fillStyle="#10201e";ctx.textAlign="center";ctx.fillText(w.text,0,0)}
-            else{ctx.fillStyle="#fff";ctx.shadowColor="rgba(0,0,0,.65)";ctx.shadowBlur=fs*.18;ctx.shadowOffsetY=fs*.05;ctx.textAlign="center";ctx.fillText(w.text,0,0)}
+            else{ctx.textAlign="center";ctx.lineJoin="round";ctx.lineWidth=fs*.16;ctx.strokeStyle="rgba(0,0,0,.75)";ctx.strokeText(w.text,0,0);ctx.fillStyle="#fff";ctx.fillText(w.text,0,0)}
             ctx.restore()};
           if(hs==="stack"&&p<1){draw1(-tx*.35,.25,"#fff");draw1(-tx*.7,.12,"#fff")}
           if(hs==="glitch"&&t<.4&&i!==ai){draw1(7*Math.sin(t*90),.7,"#ff2d55");draw1(-7*Math.sin(t*90),.7,"#00e5ff")}
@@ -1078,7 +1080,7 @@ async function renderClip(c,record){
     if(si===0&&!useCold)sfx("pop",{gain:.2});
     rv.muted=false;rv.playbackRate=1;
     try{await rv.play()}catch(e){aborted=true;break}
-    let skipped=0,seeking=false;
+    let skipped=0,seeking=false,lastUi=0;
     await new Promise(res=>{
       const step=()=>{
         if(cancelR){aborted=true;return res()}
@@ -1090,8 +1092,7 @@ async function renderClip(c,record){
             rv.addEventListener("seeked",()=>{seeking=false},{once:true});rv.currentTime=seg.t0+r[1];requestAnimationFrame(step);return}
         }
         const T=base+Math.max(0,mt-skipped);draw(T,rv.currentTime,seg.type);
-        $("#rProg i").style.width=(T/total*100)+"%";
-        $("#rSt").textContent=(record?"Merender ":"Pratinjau ")+`${T.toFixed(1)} / ${total.toFixed(1)} dtk`;
+        const nowp=performance.now();if(nowp-lastUi>200){lastUi=nowp;$("#rProg i").style.width=(T/total*100)+"%";$("#rSt").textContent=(record?"Merender ":"Pratinjau ")+`${T.toFixed(1)} / ${total.toFixed(1)} dtk`}
         requestAnimationFrame(step);
       };step();
     });

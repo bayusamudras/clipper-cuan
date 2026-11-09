@@ -34,3 +34,9 @@ Alat untuk mengubah video panjang (podcast, wawancara, rekaman lapangan) menjadi
 - Skor "menarik" berasal dari sinyal audio, gerakan, dan kata kunci, bukan pemahaman isi.
 - Musik tren dari TikTok tidak bisa dipakai di sini. Tambahkan lewat aplikasi TikTok saat mengunggah.
 - Render dan pemindaian butuh tab yang tetap terlihat.
+
+## Pembaruan terbaru
+- **Hook sesuai topik**: tema satu seri dideteksi otomatis dari transkrip (atau isi sendiri di kolom Topik). Hook dibuat dari tema + isi tiap clip, contoh "Beli Bitcoin pasti kaya?", "Kenapa banyak yang rugi di Bitcoin?", "Bitcoin dan halving: yang jarang dibahas". Tiap clip diberi label Part n/N dan momen yang tidak nyambung dengan tema diberi peringatan.
+- **Momen dipilih nyambung**: skor momen ditambah bobot kemunculan tema, jadi clip satu seri membahas topik yang sama.
+- **Subtitle selalu aktif** dengan warna per kategori: kuning angka, merah peringatan, hijau solusi/untung, biru muda nama/istilah.
+- Transkripsi otomatis (Whisper) hanya jalan di versi lokal atau GitHub Pages, bukan di claude.ai.

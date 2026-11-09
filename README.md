@@ -24,6 +24,7 @@ Alat untuk mengubah video panjang (podcast, wawancara, rekaman lapangan) menjadi
 - Hook 1–3 detik: teks bergerak (slam, geser, glitch) dan/atau cold open dari momen puncak.
 - Editan dinamis: punch-in, getar, cincin, kata sorot, jump cut, efek loop, lower third, kartu penutup.
 - Tata letak: video di tengah dengan latar blur, isi penuh dengan fokus otomatis/manual, split atas-bawah.
+- Animasi penerapan otomatis dari transkrip: langkah bernomor, angka berhitung, perbandingan, sebab-akibat, contoh, peringatan, dan tips. Bisa dimatikan, diedit, atau ditambah manual per clip.
 - Subtitle kata-per-kata, SFX sintetis, musik latar sintetis atau musik unggahan sendiri.
 - Paket posting: judul layar, caption, hashtag. Pengecekan SOP di tiap momen.
 

@@ -78,7 +78,8 @@ Cek tiap clip terhadap daftar ini sebelum diserahkan. Alasannya: penonton memutu
 5. **Teks**: judul besar di 3 detik pertama, lalu subtitle per kata sepanjang video. Kata kunci krusial diberi warna kontras. Subtitle di tengah-atas, bukan paling bawah.
 6. **Musik latar** tipis (lo-fi atau suspense) sekitar −25 sampai −30 dB. Musik tren TikTok tidak diambil: tambahkan lewat aplikasi TikTok saat mengunggah, atau pakai musik berlisensi/bebas royalti.
 7. **Efek loop**: kalimat atau hook terakhir menyambung kembali ke awal.
-8. **Paket posting**: judul layar, caption berpertanyaan, 3–5 hashtag niche + 1 hashtag tren.
+8. **Animasi penerapan**: setiap kali isi video menunjukkan penerapan (langkah, angka, perbandingan, sebab-akibat, contoh, peringatan, tips), tampilkan animasi penjelas di area aman atas layar supaya paham lebih cepat dan penonton tidak bosan. Maksimum satu animasi pada satu waktu, dengan teks pendek (≤6 kata) dan tidak menutup wajah.
+9. **Paket posting**: judul layar, caption berpertanyaan, 3–5 hashtag niche + 1 hashtag tren.
 
 Untuk video panjang, arahkan pengguna ke website Potong Hook (`index.html`): file tidak diunggah, jadi ukuran GB aman. Transkrip yang ditempel membuat pemangkasan basa-basi, subtitle, dan kata sorot bekerja.
 

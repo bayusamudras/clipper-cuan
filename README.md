@@ -49,3 +49,8 @@ Alat untuk mengubah video panjang (podcast, wawancara, rekaman lapangan) menjadi
 ## Perbaikan: render tidak jalan
 - Subtitle tidak lagi memblokir render. Tanpa transkrip, clip tetap dirender (tanpa subtitle) dan muncul peringatan.
 - Kesalahan saat render sekarang ditampilkan di status dan tidak lagi membuat tombol render macet.
+
+## Subtitle otomatis
+- Tombol **Buat subtitle otomatis** dan kotak centang **Buat subtitle otomatis saat render** (aktif secara default): kalau clip belum punya transkrip, subtitlenya dibuat dulu lalu dirender.
+- Metode 1: pengenalan suara bawaan Chrome (Chrome 139+, memakai audio video tanpa mikrofon, tanpa unduh model). Metode 2 (cadangan): Whisper di browser (butuh akses huggingface.co, jadi di versi lokal atau GitHub Pages).
+- Berjalan waktu nyata (sepanjang durasi clip). Jika semua metode gagal, clip tetap dirender tanpa subtitle.

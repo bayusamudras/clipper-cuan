@@ -158,11 +158,12 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
     <canvas id="tl" width="1000" height="96" aria-label="Garis skor momen menarik sepanjang video"></canvas>
     <div class="status" id="tlInfo">Klik garis untuk melompat. Penanda bernomor adalah momen terpilih.</div>
     <div class="row" style="margin-top:12px;align-items:end">
-      <label class="f1">Model transkripsi otomatis
+      <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)"><input type="checkbox" id="autosub" checked> Buat subtitle otomatis saat render</label>
+      <label class="f1">Model Whisper (cadangan)
         <select id="wm"><option value="Xenova/whisper-tiny">Tiny (cepat, kurang akurat)</option><option value="Xenova/whisper-base" selected>Base (seimbang)</option><option value="Xenova/whisper-small">Small (akurat, berat)</option></select></label>
-      <button id="asr">Transkripsi otomatis semua momen</button><button id="asrStop" hidden>Hentikan</button>
+      <button id="asr">Buat subtitle otomatis (semua momen)</button><button id="asrStop" hidden>Hentikan</button>
     </div>
-    <div class="status" id="asrSt">Untuk video tanpa transkrip. Berjalan waktu nyata per momen dan mengunduh model saat pertama kali, jadi hanya bekerja di versi lokal atau GitHub Pages, bukan di tampilan claude.ai.</div>
+    <div class="status" id="asrSt">Untuk video tanpa transkrip. Mencoba pengenalan suara Chrome dulu (Chrome 139+, tanpa unduh model), lalu Whisper. Berjalan waktu nyata per momen. Kalau terlewat, tekan Render saja: subtitle dibuat otomatis untuk clip itu sebelum dirender.</div>
     <div id="cands" style="margin-top:12px"></div>
   </section>
 </div>
@@ -583,7 +584,7 @@ $("#cands").addEventListener("click",e=>{
   if(b.dataset.act==="hookn"){c.hookIdx=(c.hookIdx+1)%c.hooks.length;c.hook=c.hooks[c.hookIdx];renderCands();return}
   if(b.dataset.act==="copy"){const t=$("#pp"+b.dataset.i);t.select();let ok=false;try{ok=!!navigator.clipboard&&(navigator.clipboard.writeText(t.value).catch(()=>{}),true)}catch(e){}b.textContent=ok?"Tersalin":"Tekan Ctrl+C";return}
   if(b.dataset.act==="prev")renderClip(c,false);
-  if(b.dataset.act==="exp"){if(!subOk())return;renderClip(c,true)}
+  if(b.dataset.act==="exp"){ensureSubs(c).then(()=>renderClip(c,true));return}
 });
 ["hmode","hdur","estyle","jump","jlev","subs","bgm","bgv"].forEach(id=>$("#"+id).addEventListener("change",()=>{S.cands.forEach(setCold);if(S.cands.length)renderCands()}));
 function drawTL(){
@@ -729,18 +730,22 @@ function drawAnim(ctx,a,lt,R,accent,fire){
   ctx.restore();
 }
 
-/* ---------- transkripsi otomatis (Whisper di browser) ---------- */
-let asrPipe=null,asrName="",cancelAsr=false;
+/* ---------- subtitle otomatis: Chrome (Web Speech) lalu Whisper ---------- */
+let asrPipe=null,asrName="",cancelAsr=false,asrBusy=false;const ASR_DEAD={};
+const chromeVer=()=>{const m=navigator.userAgent.match(/Chrom(?:e|ium)\/(\d+)/);return m?+m[1]:0};
 async function getAsr(name,cb){
   if(asrPipe&&asrName===name)return asrPipe;
   const mod=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/+esm");
   mod.env.allowLocalModels=false;
   asrPipe=await mod.pipeline("automatic-speech-recognition",name,{progress_callback:cb});asrName=name;return asrPipe;
 }
-async function captureAudio(t0,t1,onP){
+async function openClipVideo(t0){
   initAudio();try{await AC.resume()}catch(e){}
   const v=document.createElement("video");v.src=S.url;v.playsInline=true;v.preload="auto";
-  await once(v,"loadedmetadata");const sk=once(v,"seeked");v.currentTime=Math.max(0,t0);await sk;
+  await once(v,"loadedmetadata");const sk=once(v,"seeked");v.currentTime=Math.max(0,t0);await sk;return v;
+}
+async function captureAudio(t0,t1,onP){
+  const v=await openClipVideo(t0);
   const src=AC.createMediaElementSource(v),sp=AC.createScriptProcessor(4096,1,1),z=AC.createGain();z.gain.value=0;
   const chunks=[];sp.onaudioprocess=e=>{chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)))};
   src.connect(sp);sp.connect(z);z.connect(AC.destination);v.playbackRate=1;
@@ -752,32 +757,74 @@ async function captureAudio(t0,t1,onP){
   for(let i=0;i<m;i++){const x=i*ratio,i0=Math.floor(x),f=x-i0;out[i]=all[i0]*(1-f)+(all[Math.min(i0+1,all.length-1)]||0)*f}
   return out;
 }
+async function whisperRange(t0,t1,st){
+  const asr=await getAsr($("#wm").value,p=>{if(p&&p.status==="progress")st(`Mengunduh model ${Math.round(p.progress||0)}%`)});
+  const audio=await captureAudio(t0,t1,t=>st(`Merekam ${fmt(t)} / ${fmt(t1)} (waktu nyata)`));
+  if(cancelAsr)return [];
+  st("Mengenali ucapan…");
+  const r=await asr(audio,{language:"indonesian",task:"transcribe",chunk_length_s:30,stride_length_s:5,return_timestamps:true});
+  const out=[];for(const ch of (r.chunks||[])){const tx=(ch.text||"").trim();if(!tx)continue;out.push({t0:t0+ch.timestamp[0],t1:t0+(ch.timestamp[1]!=null?ch.timestamp[1]:ch.timestamp[0]+4),text:tx})}
+  return out;
+}
+async function webSpeechRange(t0,t1,st){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR||chromeVer()<139)throw new Error("butuh Chrome versi 139 atau lebih baru");
+  const v=await openClipVideo(t0);
+  const src=AC.createMediaElementSource(v),md=AC.createMediaStreamDestination();src.connect(md);
+  const track=md.stream.getAudioTracks()[0];
+  const seg=new Map();let err=null,stopped=false,off=0;
+  const rec=new SR();rec.lang="id-ID";rec.continuous=true;rec.interimResults=true;
+  rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i],k=off+i;let o=seg.get(k);if(!o){o={a:Math.max(t0,v.currentTime-1.2)};seg.set(k,o)}o.text=(r[0].transcript||"").trim();if(r.isFinal)o.b=v.currentTime-.4}};
+  rec.onerror=e=>{if(e.error!=="no-speech"&&e.error!=="aborted")err=e.error};
+  rec.onend=()=>{off+=1000;if(!stopped&&!err&&v.currentTime<t1&&!v.ended){try{rec.start(track)}catch(_){}}};
+  rec.start(track);
+  try{await v.play()}catch(e){try{rec.stop()}catch(_){}throw e}
+  await new Promise(res=>{const id=setInterval(()=>{st(`Mendengarkan ${fmt(v.currentTime)} / ${fmt(t1)} (waktu nyata)`);if(v.currentTime>=t1+1||v.ended||cancelAsr||err){clearInterval(id);res()}},200)});
+  stopped=true;v.pause();try{rec.stop()}catch(_){}
+  await new Promise(r=>setTimeout(r,1500));src.disconnect();
+  if(err)throw new Error("pengenalan suara Chrome gagal ("+err+")");
+  const out=[];for(const o of seg.values()){if(!o.text)continue;const n=o.text.split(/\s+/).length,b=o.b!=null?o.b:o.a+Math.max(1.5,n*.4);out.push({t0:o.a,t1:Math.max(o.a+.8,Math.min(b,t1+1)),text:o.text})}
+  out.sort((x,y)=>x.t0-y.t0);for(let i=0;i<out.length-1;i++)out[i].t1=Math.min(out[i].t1,out[i+1].t0);
+  return out;
+}
+async function transcribeRange(t0,t1,st){
+  const errs=[];
+  for(const e of ["web","whisper"]){
+    if(ASR_DEAD[e])continue;
+    try{const r=await (e==="web"?webSpeechRange:whisperRange)(t0,t1,st);return r}
+    catch(er){ASR_DEAD[e]=1;errs.push((e==="web"?"Chrome: ":"Whisper: ")+(er&&er.message?er.message:er))}
+  }
+  throw new Error(errs.length?errs.join(" | "):"semua metode sudah gagal sebelumnya, muat ulang halaman untuk mencoba lagi");
+}
+function mergeCues(t0,t1,add){
+  const cues=S.cues.filter(q=>!(q.t0>=t0-.1&&q.t0<t1)).concat(add).sort((a,b)=>a.t0-b.t0);
+  S.cues=cues;$("#trInfo").textContent=cues.length+" baris transkrip (otomatis dan/atau tempel).";
+}
+async function ensureSubs(c){
+  if(S.cues.some(q=>q.t1>c.start&&q.t0<c.end)||!$("#autosub").checked||asrBusy)return;
+  asrBusy=true;cancelAsr=false;const t0=Math.max(0,c.start-2),t1=Math.min(S.dur,c.end+2),st=t=>{$("#rSt").textContent="Subtitle otomatis: "+t};
+  $("#rProg").hidden=true;
+  try{st("memulai…");const r=await transcribeRange(t0,t1,st);if(r.length){mergeCues(t0,t1,r);$("#asrSt").textContent="Subtitle otomatis selesai ("+r.length+" baris) untuk clip terakhir."}else $("#asrSt").textContent="Tidak ada ucapan terbaca di clip terakhir, dirender tanpa subtitle."}
+  catch(e){$("#asrSt").textContent="Subtitle otomatis gagal ("+(e&&e.message?e.message:e)+"). Clip dirender tanpa subtitle; tempel transkrip untuk subtitle."}
+  asrBusy=false;
+}
 $("#asrStop").onclick=()=>{cancelAsr=true};
 $("#asr").onclick=async()=>{
-  if(!S.cands.length)return;
-  cancelAsr=false;$("#asr").disabled=true;$("#asrStop").hidden=false;
-  const st=t=>{$("#asrSt").textContent=t},cues=S.cues.slice();
+  if(!S.cands.length||asrBusy)return;
+  asrBusy=true;cancelAsr=false;ASR_DEAD.web=0;ASR_DEAD.whisper=0;$("#asr").disabled=true;$("#asrStop").hidden=false;
+  const st=t=>{$("#asrSt").textContent=t};
   try{
-    st("Memuat model… (pertama kali bisa beberapa menit)");
-    const asr=await getAsr($("#wm").value,p=>{if(p&&p.status==="progress")st(`Mengunduh model ${Math.round(p.progress||0)}%`)});
     for(let k=0;k<S.cands.length&&!cancelAsr;k++){
       const c=S.cands[k],t0=Math.max(0,c.start-2),t1=Math.min(S.dur,c.end+2);
-      st(`Momen ${k+1}/${S.cands.length}: merekam audio ${fmt(t0)}–${fmt(t1)} (waktu nyata)`);
-      const audio=await captureAudio(t0,t1,t=>st(`Momen ${k+1}/${S.cands.length}: merekam ${fmt(t)} / ${fmt(t1)}`));
-      if(cancelAsr)break;
-      st(`Momen ${k+1}/${S.cands.length}: mengenali ucapan…`);
-      const r=await asr(audio,{language:"indonesian",task:"transcribe",chunk_length_s:30,stride_length_s:5,return_timestamps:true});
-      for(let i=cues.length-1;i>=0;i--)if(cues[i].t0>=t0-.1&&cues[i].t0<t1)cues.splice(i,1);
-      for(const ch of (r.chunks||[])){const tx=(ch.text||"").trim();if(!tx)continue;const a=t0+ch.timestamp[0],b=t0+(ch.timestamp[1]!=null?ch.timestamp[1]:ch.timestamp[0]+4);cues.push({t0:a,t1:b,text:tx})}
+      const r=await transcribeRange(t0,t1,t=>st(`Momen ${k+1}/${S.cands.length}: ${t}`));
+      if(cancelAsr)break;mergeCues(t0,t1,r);
     }
-    cues.sort((a,b)=>a.t0-b.t0);S.cues=cues;
-    $("#trInfo").textContent=S.cues.length+" baris transkrip (otomatis).";
     analyze();
     st(cancelAsr?"Dihentikan. Transkrip sebagian dipakai.":"Selesai. Subtitle, hook, dan animasi diperbarui dari transkrip.");
   }catch(e){
-    st("Gagal: "+(e&&e.message?e.message:"tidak diketahui")+". Di claude.ai koneksi ke huggingface.co diblokir, jadi buka versi lokal (unduh index.html) atau GitHub Pages. Atau tempel transkrip secara manual.");
+    st("Gagal: "+(e&&e.message?e.message:"tidak diketahui")+". Alternatif: tempel transkrip secara manual, atau buka versi lokal (unduh index.html) / GitHub Pages untuk Whisper.");
   }
-  $("#asr").disabled=false;$("#asrStop").hidden=true;
+  asrBusy=false;$("#asr").disabled=false;$("#asrStop").hidden=true;
 };
 
 /* ---------- render clip ---------- */
@@ -1116,7 +1163,7 @@ async function renderClipInner(c,record){
   $("#rSt").textContent="Selesai. Hasil ada di panel Hasil render.";
   return blob;
 }
-async function runAll(){if(!subOk())return;for(const c of S.cands){const b=await renderClip(c,true);if(b===null&&cancelR)break}}
+async function runAll(){for(const c of S.cands){await ensureSubs(c);const b=await renderClip(c,true);if(b===null&&cancelR)break}}
 
 /* ---------- hasil & simpan ---------- */
 function addResult(blob,name,c,total){

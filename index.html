@@ -141,7 +141,6 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
       <label class="f1">Kata hijau tambahan (solusi/untung)
         <input type="text" id="kwg" placeholder="mis. cuan, aman, stabil"></label>
     </div>
-    <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink);margin-top:10px"><input type="checkbox" id="nosub"> Izinkan render tanpa subtitle (tidak disarankan)</label>
     <details style="margin-top:12px"><summary>Tempel transkrip (SRT, VTT, atau baris “01:23 teks”) agar momen dan hook lebih tepat</summary>
       <textarea id="tr" placeholder="00:12 Kenapa tanah ini bisa bergerak?&#10;00:18 Ternyata penyebabnya air yang meresap…" style="margin-top:8px"></textarea>
       <div class="status" id="trInfo"></div>
@@ -523,7 +522,7 @@ function sopCheck(c){
     {ok:out>=28&&out<=47,t:`durasi sekitar ${Math.round(out)} dtk (target 30–45)`},
     {ok:!!(cold||txt),t:"belum ada hook di 3 detik pertama"},
     {ok:$("#jump").checked&&S.audioOk,t:"jump cut mati"},
-    {ok:S.cues.length>0,t:"subtitle wajib: tempel transkrip atau jalankan transkripsi otomatis"},
+    {ok:S.cues.length>0,t:"belum ada subtitle: tempel transkrip"},
     {ok:bm!=="none"&&bv<=.06,t:bm==="none"?"tanpa musik latar":"musik terlalu keras (target −25 sampai −30 dB)"}
   ];
 }
@@ -881,9 +880,8 @@ function camAt(plan,tm,len){
   return {sc,ox,oy,sh};
 }
 function subOk(){
-  if(S.cues.length||$("#nosub").checked)return true;
-  $("#rSt").textContent="Subtitle wajib. Tempel transkrip, atau jalankan transkripsi otomatis. Bisa juga centang izinkan render tanpa subtitle.";
-  $("#asrSt").scrollIntoView({block:"center"});return false;
+  if(!S.cues.length)$("#rSt").textContent="Belum ada transkrip, jadi clip dirender tanpa subtitle. Tempel transkrip lalu render ulang untuk subtitle berwarna.";
+  return true;
 }
 const CAT_NEG=["jangan","bahaya","awas","salah","kesalahan","gagal","rugi","bangkrut","takut","hati-hati","darurat","tipu","penipuan","bohong","mitos","korban","ancaman"];
 const CAT_POS=["cuan","untung","solusi","tips","cara","berhasil","aman","gratis","terbukti","manfaat","hemat","profit","sukses","menang","kuncinya","rahasia"];
@@ -908,10 +906,19 @@ function wrapWords(ctx,words,maxW){const lines=[[]];let w0=0;for(const w of word
 function pickMime(){for(const t of ["video/mp4;codecs=avc1.42E01E,mp4a.40.2","video/mp4","video/webm;codecs=vp9,opus","video/webm"])if(window.MediaRecorder&&MediaRecorder.isTypeSupported(t))return t;return""}
 
 async function renderClip(c,record){
-  if(busy)return;busy=true;cancelR=false;
+  if(busy){$("#rSt").textContent="Masih merender clip lain. Tunggu selesai atau klik Batalkan.";return}
+  try{return await renderClipInner(c,record)}
+  catch(e){
+    busy=false;$("#cancelR").hidden=true;$("#rProg").hidden=true;try{rv.pause()}catch(_){}
+    $("#rSt").textContent="Render gagal: "+(e&&e.message?e.message:e)+". Coba resolusi 540×960, matikan jump cut, atau muat ulang halaman.";
+    console.error(e);
+  }
+}
+async function renderClipInner(c,record){
+  busy=true;cancelR=false;
   initAudio();try{await AC.resume()}catch(e){}
   try{await Promise.all([document.fonts.load('800 40px "Bricolage Grotesque"'),document.fonts.load('600 30px "Instrument Sans"')])}catch(e){}
-  const cv=$("#cv"),ctx=cv.getContext("2d",{alpha:false,desynchronized:true}),W=Number($("#res").value),H=Math.round(W*16/9);
+  const cv=$("#cv"),ctx=cv.getContext("2d",{alpha:false}),W=Number($("#res").value),H=Math.round(W*16/9);
   cv.width=W;cv.height=H;
   const mode=$("#hmode").value,hookDur=Number($("#hdur").value);
   const useCold=(mode==="both"||mode==="cold")&&c.cold!=null,useText=(mode==="both"||mode==="text")&&c.hook.trim().length>0;

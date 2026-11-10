@@ -45,3 +45,7 @@ Alat untuk mengubah video panjang (podcast, wawancara, rekaman lapangan) menjadi
 - Hook default sekarang **teks saja** (tanpa cuplikan cold open), dibuat dari tema dan isi tiap clip.
 - Pindai: pilihan **8× turbo (default)** dan 16×, sekitar 2-3 kali lebih cepat dari 4×.
 - Render: jump cut dibatasi maksimal 6 per clip dan minimal 0,45 detik (seek adalah penyebab video tersendat), kanvas tanpa alfa, teks hook tanpa shadowBlur, pembaruan panel dibatasi. Tersedia resolusi 540×960 untuk komputer lambat.
+
+## Perbaikan: render tidak jalan
+- Subtitle tidak lagi memblokir render. Tanpa transkrip, clip tetap dirender (tanpa subtitle) dan muncul peringatan.
+- Kesalahan saat render sekarang ditampilkan di status dan tidak lagi membuat tombol render macet.
